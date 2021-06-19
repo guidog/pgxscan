@@ -89,18 +89,26 @@ func TestScanRow(t *testing.T) {
 	)
 	y = x
 
-	err = pgxscan.ReadStruct(y, rows)
+	err = pgxscan.ReadStruct(nil, rows)
+	if err != pgxscan.ErrDestNil {
+		t.Fatal("nil destination not detected")
+	}
 
+	err = pgxscan.ReadStruct(y, rows)
 	if err != pgxscan.ErrDestNil {
 		t.Fatal("nil destination not detected")
 	}
 
 	for rows.Next() {
 		var dest struct {
-			Bigid int64
-			Xx    [][]byte
-			A     []string
-			Xa    []int64
+			String string
+			X      []byte
+			Bigid  int64
+			N      float32
+			R      float64
+			Xx     [][]byte
+			A      []string
+			Xa     []int64
 		}
 
 		fmt.Printf("data before: %+v\n", dest)

@@ -9,10 +9,6 @@ import (
 	"github.com/jackc/pgx/v4"
 )
 
-type FieldDescriptions struct {
-	Name string
-}
-
 var (
 	ErrNotPointer     = errors.New("arg not a pointer")
 	ErrNotStruct      = errors.New("arg not a struct")
@@ -97,8 +93,8 @@ func scanStructRow(dest interface{}, rows pgx.Rows) error {
 
 		v := vals[i]
 
-		// special cases for common arrays/slices
 		switch v := v.(type) {
+		// special cases for common arrays/slices
 		case pgtype.TextArray:
 			if len(v.Dimensions) != 1 {
 				return ErrNotSimpleArray
