@@ -65,7 +65,7 @@ func scanStructRow(dest interface{}, rows pgx.Rows) error {
 		structFields[name] = struct{}{}
 	}
 
-	// field descriptions an values are in sync
+	// field descriptions and values are in sync
 	// so fds[i] is matched by vals[i]
 	fds := rows.FieldDescriptions()
 	vals, err := rows.Values()

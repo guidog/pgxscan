@@ -4,4 +4,6 @@
 //  []int64
 //  []string
 //  [][]byte
+//
+// Only 1 dimensional arrays are supported for now.
 package pgxscan
