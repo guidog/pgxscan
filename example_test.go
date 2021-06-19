@@ -8,7 +8,18 @@ import (
 	"github.com/guidog/pgxscan"
 )
 
-func ExampleReadStruct() {
+type testRecord struct {
+	String string
+	X      []byte
+	Bigid  int64
+	N      float32
+	R      float64
+	Xx     [][]byte
+	A      []string
+	Xa     []int64
+}
+
+func Example() {
 	const testTable = `CREATE TABLE IF NOT EXISTS scantest (
   bigid bigint DEFAULT 7,
   string text DEFAULT 'xy',
@@ -33,16 +44,7 @@ func ExampleReadStruct() {
 	defer rows.Close()
 
 	for rows.Next() {
-		var dest struct {
-			String string
-			X      []byte
-			Bigid  int64
-			N      float32
-			R      float64
-			Xx     [][]byte
-			A      []string
-			Xa     []int64
-		}
+		var dest testRecord
 
 		fmt.Printf("data before: %+v\n", dest)
 
@@ -54,3 +56,7 @@ func ExampleReadStruct() {
 		fmt.Printf("data after: %+v\n", dest)
 	}
 }
+
+// Output:
+// data before: {String: X:[] Bigid:0 N:0 R:0 Xx:[] A:[] Xa:[]}
+// data after: {String:xy X:[1 2 3] Bigid:7 N:42.1 R:-1e-06 Xx:[[48 49 48 50] [120]] A:[AA BB] Xa:[11 22]}
