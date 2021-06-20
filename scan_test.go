@@ -2,8 +2,8 @@ package pgxscan_test
 
 import (
 	"context"
-	"fmt"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -80,48 +80,79 @@ func TestScanRow(t *testing.T) {
 	}
 	defer rows.Close()
 
+	if found := rows.Next(); !found {
+		t.Fatal("no test data found")
+	}
+
 	type X struct {
 		R float64
 	}
 	var (
 		x *X
 		y interface{}
+		z struct{}
 	)
 	y = x
 
-	err = pgxscan.ReadStruct(nil, rows)
-	if err != pgxscan.ErrDestNil {
-		t.Fatal("nil destination not detected")
+	// empty destination struct
+	err = pgxscan.ReadStruct(&z, rows)
+	if err != pgxscan.ErrEmptyStruct {
+		t.Fatal("struct{} destination not detected")
 	}
 
+	// check if nil pointer is detected
+	err = pgxscan.ReadStruct(nil, rows)
+	if err != pgxscan.ErrDestNil {
+		t.Fatal("nil pointer not detected")
+	}
+
+	// check if nil reference is detected
 	err = pgxscan.ReadStruct(y, rows)
 	if err != pgxscan.ErrDestNil {
 		t.Fatal("nil destination not detected")
 	}
 
-	for rows.Next() {
-		var dest struct {
-			String string
-			X      []byte
-			Bigid  int64
-			N      float32
-			R      float64
-			Xx     [][]byte
-			A      []string
-			Xa     []int64
-		}
+	// type w/ supported data types
+	// field order is not relevant
+	var dest struct {
+		String string
+		X      []byte
+		Bigid  int64
+		N      float32
+		R      float64
+		Xx     [][]byte
+		A      []string
+		Xa     []int64
+	}
 
-		fmt.Printf("data before: %+v\n", dest)
+	err = pgxscan.ReadStruct(&dest, rows)
+	if err != nil {
+		t.Error(err)
+	}
 
-		err = pgxscan.ReadStruct(&dest, rows)
-		if err != nil {
-			t.Error(err)
-		}
-
-		if dest.Bigid != 7 {
-			t.Error("value mismatch for field Bigid")
-		}
-		fmt.Printf("data after: %+v\n", dest)
+	if dest.String != "xy" {
+		t.Error("value mismatch for field String")
+	}
+	if !reflect.DeepEqual(dest.X, []byte{1, 2, 3}) {
+		t.Error("value mismatch for field X")
+	}
+	if dest.Bigid != 7 {
+		t.Error("value mismatch for field Bigid")
+	}
+	if dest.N != float32(42.1) {
+		t.Error("value mismatch for field N")
+	}
+	if dest.R != float64(-0.000001) {
+		t.Error("value mismatch for field R")
+	}
+	if !reflect.DeepEqual(dest.Xx, [][]byte{[]byte("0102"), []byte("x")}) {
+		t.Error("value mismatch for field Xx")
+	}
+	if !reflect.DeepEqual(dest.A, []string{"AA", "BB"}) {
+		t.Error("value mismatch for field A")
+	}
+	if !reflect.DeepEqual(dest.Xa, []int64{11, 22}) {
+		t.Error("value mismatch for field Xa")
 	}
 
 }
