@@ -4,16 +4,31 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"unicode"
 
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4"
 )
 
+// NameMatcherFnc is the signature for a function doing the name matching for fields.
+// fieldName is the name of the struct field and resultName the column name returned from the query.
+type NameMatcherFnc func(fieldName, resultName string) bool
+
 var (
-	ErrNotPointer     = errors.New("arg not a pointer")
-	ErrNotStruct      = errors.New("arg not a struct")
-	ErrDestNil        = errors.New("destination is nil")
-	ErrNotSimpleArray = errors.New("db field not a simple array")
+	// ErrNotPointer is returend when the destination is not a pointer.
+	ErrNotPointer = errors.New("arg not a pointer")
+	// ErrNotStruct is returned when the dereferenced destination pointer does not point to a struct.
+	ErrNotStruct = errors.New("arg not a struct")
+	// ErrDestNil is returned when the destination is nil or points to nothing.
+	ErrDestNil = errors.New("destination is nil")
+	// ErrNotSimpleSlice is returned if the destination field is a slice
+	ErrNotSimpleSlice = errors.New("db field not a simple slice")
+	// ErrEmptyStruct is returned if the destination struct has no fields
+	ErrEmptyStruct = errors.New("destination struct has no fields")
+
+	// DefaultNameMatcher is the matching function used by ReadStruct.
+	// If not set, the internal matching is used.
+	DefaultNameMatcher NameMatcherFnc = nil
 )
 
 // ReadStruct scans the current record in rows into the given destination.
@@ -22,8 +37,12 @@ var (
 // If a struct field is exported and the name matches a returned column name the
 // value of the db column is assigned to the struct field.
 //
-// If the struct field cannot be modified it is ignored.
+// If the struct field cannot be modified it is silently ignored.
+//
+// ReadStruct uses DefaultNameMatcher to match struct fields to result columns.
+// If it is not set, the internal matching is used.
 func ReadStruct(dest interface{}, rows pgx.Rows) error {
+	// bail out early if something is fishy
 	if dest == nil {
 		return ErrDestNil
 	}
@@ -31,13 +50,7 @@ func ReadStruct(dest interface{}, rows pgx.Rows) error {
 		return rows.Err()
 	}
 
-	err := scanStructRow(dest, rows)
-
-	return err
-}
-
-func scanStructRow(dest interface{}, rows pgx.Rows) error {
-	// check for pointer first
+	// check for pointer
 	t := reflect.TypeOf(dest)
 	if k := t.Kind(); k != reflect.Ptr {
 		return ErrNotPointer
@@ -53,6 +66,11 @@ func scanStructRow(dest interface{}, rows pgx.Rows) error {
 	structData := sval.Elem()
 	if k := structData.Kind(); k != reflect.Struct {
 		return ErrNotStruct
+	}
+
+	// no destination fields, return
+	if structData.NumField() < 1 {
+		return ErrEmptyStruct
 	}
 
 	// get type of struct for field access
@@ -73,17 +91,37 @@ func scanStructRow(dest interface{}, rows pgx.Rows) error {
 		return err
 	}
 
+	var matchFnc NameMatcherFnc
+
+	if DefaultNameMatcher == nil {
+		matchFnc = defaultNameMatcher
+	} else {
+		matchFnc = DefaultNameMatcher
+	}
+
 	// loop over all sql values and try to find a matching struct field
-	// ignore missing fields from sql result
+	// ignore missing struct fields
 	for i := 0; i < len(fds); i++ {
 		fd := fds[i]
-		fieldName := strings.Title(string(fd.Name))
-		_, ok := structFields[fieldName]
-		if !ok {
+		resultName := string(fd.Name) // fd.Name is []byte
+		fieldName := ""
+		// match names
+		for k := range structFields {
+			if !matchFnc(k, resultName) {
+				continue
+			}
+			// names do match
+			fieldName = k
+			break
+		}
+		if len(fieldName) < 1 {
+			// no matching field found, next
 			continue
 		}
 
-		// field name does match
+		// field is used, remove it
+		delete(structFields, fieldName)
+
 		// do the assignment
 		destField := structData.FieldByName(fieldName)
 		if !destField.CanSet() {
@@ -91,13 +129,16 @@ func scanStructRow(dest interface{}, rows pgx.Rows) error {
 			continue
 		}
 
+		// fetch value for column[i]
 		v := vals[i]
 
 		switch v := v.(type) {
 		// special cases for common arrays/slices
+		// fresh slices are assigned to the destination
+		// TODO: improve slice handling
 		case pgtype.TextArray:
 			if len(v.Dimensions) != 1 {
-				return ErrNotSimpleArray
+				return ErrNotSimpleSlice
 			}
 			res := make([]string, len(v.Elements))
 			for i := 0; i < len(res); i++ {
@@ -108,7 +149,7 @@ func scanStructRow(dest interface{}, rows pgx.Rows) error {
 		case pgtype.Int2Array:
 			// sql returned 16 bit ints
 			if len(v.Dimensions) != 1 {
-				return ErrNotSimpleArray
+				return ErrNotSimpleSlice
 			}
 			res := make([]int64, len(v.Elements))
 			for i := 0; i < len(res); i++ {
@@ -119,7 +160,7 @@ func scanStructRow(dest interface{}, rows pgx.Rows) error {
 		case pgtype.Int4Array:
 			// sql returned 32 bit ints
 			if len(v.Dimensions) != 1 {
-				return ErrNotSimpleArray
+				return ErrNotSimpleSlice
 			}
 			res := make([]int64, len(v.Elements))
 			for i := 0; i < len(res); i++ {
@@ -130,7 +171,7 @@ func scanStructRow(dest interface{}, rows pgx.Rows) error {
 		case pgtype.Int8Array:
 			// sql returned 64 bit ints
 			if len(v.Dimensions) != 1 {
-				return ErrNotSimpleArray
+				return ErrNotSimpleSlice
 			}
 			res := make([]int64, len(v.Elements))
 			for i := 0; i < len(res); i++ {
@@ -139,10 +180,12 @@ func scanStructRow(dest interface{}, rows pgx.Rows) error {
 			vres := reflect.ValueOf(res)
 			destField.Set(vres)
 		case pgtype.ByteaArray:
+			// [][]byte is bytea[] in Postgres
 			if len(v.Dimensions) != 1 {
-				return ErrNotSimpleArray
+				return ErrNotSimpleSlice
 			}
 			res := make([][]byte, len(v.Elements))
+			// need to copy bytes over
 			for i := 0; i < len(res); i++ {
 				a := make([]byte, len(v.Elements[i].Bytes))
 				copy(a, v.Elements[i].Bytes)
@@ -158,5 +201,26 @@ func scanStructRow(dest interface{}, rows pgx.Rows) error {
 			destField.Set(sv)
 		}
 	}
-	return nil
+
+	return err
+}
+
+func defaultNameMatcher(fieldName, resultName string) bool {
+	// empty  field name or result name always fails
+	if len(fieldName) < 1 || len(resultName) < 1 {
+		return false
+	}
+
+	// is struct field exported
+	firstRune := []rune(fieldName)[0]
+	if !unicode.IsUpper(firstRune) {
+		return false
+	}
+
+	// see if the names are equal
+	if !strings.EqualFold(fieldName, resultName) {
+		return false
+	}
+
+	return true
 }
