@@ -12,6 +12,7 @@ import (
 
 // NameMatcherFnc is the signature for a function doing the name matching for fields.
 // fieldName is the name of the struct field and resultName the column name returned from the query.
+// If the names match true is returned, false otherwise.
 type NameMatcherFnc func(fieldName, resultName string) bool
 
 var (

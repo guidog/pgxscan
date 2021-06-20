@@ -14,7 +14,9 @@ import (
 const (
 	defaultDbURL = "host=localhost port=5432 dbname=testdb user=postgres sslmode=disable"
 	testTable    = `CREATE TABLE IF NOT EXISTS scantest (
-  bigid bigint DEFAULT 7,
+  bigid bigint DEFAULT 703340046535533321,
+  littleid int DEFAULT 2135533321,
+  verylittleid smallint DEFAULT 16384,
   string text DEFAULT 'xy',
   n real DEFAULT 42.1,
   r double precision DEFAULT -0.000001,
@@ -130,16 +132,18 @@ func TestReadStruct(t *testing.T) {
 	// type w/ supported data types
 	// field order is not relevant
 	var dest struct {
-		String string
-		X      []byte
-		Bigid  int64
-		N      float32
-		R      float64
-		Xx     [][]byte
-		A      []string
-		Xa     []int64
-		Xb     []int64
-		Xc     []int64
+		String       string
+		X            []byte
+		Bigid        int64
+		LittleId     int32
+		VeryLittleId int16
+		N            float32
+		R            float64
+		Xx           [][]byte
+		A            []string
+		Xa           []int64
+		Xb           []int64
+		Xc           []int64
 		// ignored fields
 		bla int64
 	}
@@ -155,8 +159,14 @@ func TestReadStruct(t *testing.T) {
 	if !reflect.DeepEqual(dest.X, []byte{1, 2, 3}) {
 		t.Error("value mismatch for field X")
 	}
-	if dest.Bigid != 7 {
+	if dest.Bigid != 703340046535533321 {
 		t.Error("value mismatch for field Bigid")
+	}
+	if dest.LittleId != 2135533321 {
+		t.Error("value mismatch for field LittleId")
+	}
+	if dest.VeryLittleId != 16384 {
+		t.Error("value mismatch for field VeryLittleId")
 	}
 	if dest.N != float32(42.1) {
 		t.Error("value mismatch for field N")
@@ -233,9 +243,15 @@ func TestReadStructEmbedded(t *testing.T) {
 	if !reflect.DeepEqual(dest.X, []byte{1, 2, 3}) {
 		t.Error("value mismatch for field X")
 	}
-	if dest.Bigid != 7 {
+	if dest.Bigid != 703340046535533321 {
 		t.Error("value mismatch for field Bigid")
 	}
+	// if dest.LittleId != 2135533321 {
+	// 	t.Error("value mismatch for field LittleId")
+	// }
+	// if dest.VeryLittleId != 16384 {
+	// 	t.Error("value mismatch for field VeryLittleId")
+	// }
 	if dest.N != float32(42.1) {
 		t.Error("value mismatch for field N")
 	}

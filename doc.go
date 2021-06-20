@@ -4,8 +4,10 @@
 //
 // The following Go data types are supported as destinations in a struct:
 //  - int64
+//  - int32
+//  - int16
 //  - string
-//  - bytea
+//  - []byte
 //  - float64
 //  - float32
 //
