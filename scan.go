@@ -226,7 +226,6 @@ func getFields(r reflect.Type, m map[string]struct{}) {
 	if r.Kind() != reflect.Struct {
 		return
 	}
-	// pre-allocate a little
 	for i := 0; i < r.NumField(); i++ {
 		field := r.Field(i)
 		switch field.Type.Kind() {
