@@ -212,15 +212,17 @@ func TestReadStructEmbedded(t *testing.T) {
 	// type w/ supported data types
 	// field order is not relevant
 	type base1 struct {
-		A     []string
-		Bigid int64
+		A            []string
+		Bigid        int64
+		VeryLittleId int16
 	}
 	type base2 struct {
 		base1
-		N  float32
-		R  float64
-		A  []string
-		Xa []int64
+		LittleId int32
+		N        float32
+		R        float64
+		A        []string
+		Xa       []int64
 	}
 	var dest struct {
 		base2
@@ -246,12 +248,12 @@ func TestReadStructEmbedded(t *testing.T) {
 	if dest.Bigid != 703340046535533321 {
 		t.Error("value mismatch for field Bigid")
 	}
-	// if dest.LittleId != 2135533321 {
-	// 	t.Error("value mismatch for field LittleId")
-	// }
-	// if dest.VeryLittleId != 16384 {
-	// 	t.Error("value mismatch for field VeryLittleId")
-	// }
+	if dest.LittleId != 2135533321 {
+		t.Error("value mismatch for field LittleId")
+	}
+	if dest.VeryLittleId != 16384 {
+		t.Error("value mismatch for field VeryLittleId")
+	}
 	if dest.N != float32(42.1) {
 		t.Error("value mismatch for field N")
 	}
