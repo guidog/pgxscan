@@ -73,17 +73,11 @@ func ReadStruct(dest interface{}, rows pgx.Rows) error {
 		return ErrEmptyStruct
 	}
 
-	// get type of struct for field access
-	structType := structData.Type()
-
 	// collect all field names from struct
-	structFields := make(map[string]struct{}, structData.NumField())
-	for i := 0; i < structData.NumField(); i++ {
-		name := structType.Field(i).Name
-		structFields[name] = struct{}{}
-	}
+	structFields := make(map[string]struct{}, 10)
+	getFields(structData.Type(), structFields)
 
-	// field descriptions and values are in sync
+	// field descriptions and values of result set are in sync
 	// so fds[i] is matched by vals[i]
 	fds := rows.FieldDescriptions()
 	vals, err := rows.Values()
@@ -101,18 +95,18 @@ func ReadStruct(dest interface{}, rows pgx.Rows) error {
 
 	// loop over all sql values and try to find a matching struct field
 	// ignore missing struct fields
-	for i := 0; i < len(fds); i++ {
+	for i := 0; i < len(fds) && len(structFields) > 0; i++ {
 		fd := fds[i]
 		resultName := string(fd.Name) // fd.Name is []byte
 		fieldName := ""
+
 		// match names
 		for k := range structFields {
-			if !matchFnc(k, resultName) {
-				continue
+			if matchFnc(k, resultName) {
+				// names do match
+				fieldName = k
+				break
 			}
-			// names do match
-			fieldName = k
-			break
 		}
 		if len(fieldName) < 1 {
 			// no matching field found, next
@@ -123,6 +117,7 @@ func ReadStruct(dest interface{}, rows pgx.Rows) error {
 		delete(structFields, fieldName)
 
 		// do the assignment
+		// nameed access uses the same rules as Go code
 		destField := structData.FieldByName(fieldName)
 		if !destField.CanSet() {
 			// silently ignore fields that can not be set
@@ -223,4 +218,21 @@ func defaultNameMatcher(fieldName, resultName string) bool {
 	}
 
 	return true
+}
+
+// helper to recursively collect all field names from the given struct
+func getFields(r reflect.Type, m map[string]struct{}) {
+	if r.Kind() != reflect.Struct {
+		return
+	}
+	// pre-allocate a little
+	for i := 0; i < r.NumField(); i++ {
+		field := r.Field(i)
+		switch field.Type.Kind() {
+		case reflect.Struct:
+			getFields(field.Type, m)
+		default:
+			m[field.Name] = struct{}{}
+		}
+	}
 }

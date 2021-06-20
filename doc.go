@@ -18,6 +18,9 @@
 // The slices in the struct are overwritten by newly allocated slices.
 // So it does not make sense to pre-allocate anything in there.
 //
+// Embedded structs are supported.
+// If there are duplicate field names, the highest level name is used. Which is the Go rule for access.
+//
 // Default name matching
 //
 // A match is found when the following conditions are met:

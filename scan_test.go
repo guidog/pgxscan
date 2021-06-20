@@ -21,7 +21,9 @@ const (
   a text[] DEFAULT '{"AA","BB"}',
   x bytea DEFAULT '\x010203',
   xx bytea[] DEFAULT '{"0102", "x"}',
-  xa int[] DEFAULT '{11,22}'
+  xa int[] DEFAULT '{11,22}',
+  xb bigint[] DEFAULT '{565663666322000,-566633}',
+  xc smallint[] DEFAULT '{33,-5}'
 )`
 )
 
@@ -67,7 +69,7 @@ func setupDB() *pgx.Conn {
 	return db
 }
 
-func TestScanRow(t *testing.T) {
+func TestReadStruct(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -88,17 +90,12 @@ func TestScanRow(t *testing.T) {
 		R float64
 	}
 	var (
+		w X
 		x *X
 		y interface{}
 		z struct{}
 	)
 	y = x
-
-	// empty destination struct
-	err = pgxscan.ReadStruct(&z, rows)
-	if err != pgxscan.ErrEmptyStruct {
-		t.Fatal("struct{} destination not detected")
-	}
 
 	// check if nil pointer is detected
 	err = pgxscan.ReadStruct(nil, rows)
@@ -106,10 +103,28 @@ func TestScanRow(t *testing.T) {
 		t.Fatal("nil pointer not detected")
 	}
 
+	// check non-struct is detected
+	err = pgxscan.ReadStruct(&w.R, rows)
+	if err != pgxscan.ErrNotStruct {
+		t.Fatal("non-struct not detected")
+	}
+
+	// check non-pointer is detected
+	err = pgxscan.ReadStruct(w, rows)
+	if err != pgxscan.ErrNotPointer {
+		t.Fatal("non-pointer not detected")
+	}
+
 	// check if nil reference is detected
 	err = pgxscan.ReadStruct(y, rows)
 	if err != pgxscan.ErrDestNil {
 		t.Fatal("nil destination not detected")
+	}
+
+	// empty destination struct
+	err = pgxscan.ReadStruct(&z, rows)
+	if err != pgxscan.ErrEmptyStruct {
+		t.Fatal("struct{} destination not detected")
 	}
 
 	// type w/ supported data types
@@ -123,12 +138,94 @@ func TestScanRow(t *testing.T) {
 		Xx     [][]byte
 		A      []string
 		Xa     []int64
+		Xb     []int64
+		Xc     []int64
+		// ignored fields
+		bla int64
 	}
 
 	err = pgxscan.ReadStruct(&dest, rows)
 	if err != nil {
 		t.Error(err)
 	}
+
+	if dest.String != "xy" {
+		t.Error("value mismatch for field String")
+	}
+	if !reflect.DeepEqual(dest.X, []byte{1, 2, 3}) {
+		t.Error("value mismatch for field X")
+	}
+	if dest.Bigid != 7 {
+		t.Error("value mismatch for field Bigid")
+	}
+	if dest.N != float32(42.1) {
+		t.Error("value mismatch for field N")
+	}
+	if dest.R != float64(-0.000001) {
+		t.Error("value mismatch for field R")
+	}
+	if !reflect.DeepEqual(dest.Xx, [][]byte{[]byte("0102"), []byte("x")}) {
+		t.Error("value mismatch for field Xx")
+	}
+	if !reflect.DeepEqual(dest.A, []string{"AA", "BB"}) {
+		t.Error("value mismatch for field A")
+	}
+	if !reflect.DeepEqual(dest.Xa, []int64{11, 22}) {
+		t.Error("value mismatch for field Xa")
+	}
+	if !reflect.DeepEqual(dest.Xb, []int64{565663666322000, -566633}) {
+		t.Error("value mismatch for field Xb")
+	}
+	if !reflect.DeepEqual(dest.Xc, []int64{33, -5}) {
+		t.Error("value mismatch for field Xc")
+	}
+
+}
+
+func TestReadStructEmbedded(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	db := setupDB()
+	defer db.Close(ctx)
+
+	rows, err := db.Query(ctx, "SELECT * FROM scantest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	if found := rows.Next(); !found {
+		t.Fatal("no test data found")
+	}
+
+	// type w/ supported data types
+	// field order is not relevant
+	type base1 struct {
+		A     []string
+		Bigid int64
+	}
+	type base2 struct {
+		base1
+		N  float32
+		R  float64
+		A  []string
+		Xa []int64
+	}
+	var dest struct {
+		base2
+		String string
+		X      []byte
+		Xx     [][]byte
+		A      []string
+	}
+
+	err = pgxscan.ReadStruct(&dest, rows)
+	if err != nil {
+		t.Error(err)
+	}
+
+	// fmt.Printf("result: %+v\n", dest)
 
 	if dest.String != "xy" {
 		t.Error("value mismatch for field String")
