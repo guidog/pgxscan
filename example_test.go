@@ -9,6 +9,7 @@ import (
 )
 
 type testRecord struct {
+	// order of fields does not matter
 	String string
 	X      []byte
 	Bigid  int64
