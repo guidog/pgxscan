@@ -3,9 +3,12 @@ package pgxscan_test
 import (
 	"context"
 	"os"
-	"reflect"
+
+	// "reflect"
 	"testing"
 	"time"
+
+	"github.com/goccy/go-reflect"
 
 	"github.com/guidog/pgxscan"
 	"github.com/jackc/pgx/v4"
@@ -145,7 +148,8 @@ func TestReadStruct(t *testing.T) {
 		Xb           []int64
 		Xc           []int64
 		// ignored fields
-		bla int64
+		bla          int64
+		WaddelDaddel string
 	}
 
 	err = pgxscan.ReadStruct(&dest, rows)
@@ -190,6 +194,15 @@ func TestReadStruct(t *testing.T) {
 		t.Error("value mismatch for field Xc")
 	}
 
+	// ignored fields
+	if dest.bla != 0 {
+		t.Error("value mismatch for field bla")
+
+	}
+	if dest.WaddelDaddel != "" {
+		t.Error("value mismatch for field WaddelDaddel")
+
+	}
 }
 
 func TestReadStructEmbedded(t *testing.T) {
@@ -268,6 +281,50 @@ func TestReadStructEmbedded(t *testing.T) {
 	}
 	if !reflect.DeepEqual(dest.Xa, []int64{11, 22}) {
 		t.Error("value mismatch for field Xa")
+	}
+
+}
+
+func BenchmarkReadStruct(b *testing.B) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	db := setupDB()
+	defer db.Close(ctx)
+
+	rows, err := db.Query(ctx, "SELECT * FROM scantest")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer rows.Close()
+	rows.Next()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		// type w/ supported data types
+		// field order is not relevant
+		var dest struct {
+			String       string
+			X            []byte
+			Bigid        int64
+			LittleId     int32
+			VeryLittleId int16
+			N            float32
+			R            float64
+			Xx           [][]byte
+			A            []string
+			Xa           []int64
+			Xb           []int64
+			Xc           []int64
+			// ignored fields
+			bla int64
+		}
+		err := pgxscan.ReadStruct(&dest, rows)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 
 }

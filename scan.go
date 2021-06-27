@@ -2,9 +2,10 @@ package pgxscan
 
 import (
 	"errors"
-	"reflect"
+	// "reflect"
 	"strings"
-	"unicode"
+
+	"github.com/goccy/go-reflect"
 
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4"
@@ -75,8 +76,8 @@ func ReadStruct(dest interface{}, rows pgx.Rows) error {
 	}
 
 	// collect all field names from struct
-	structFields := make(map[string]struct{}, 10)
-	getFields(structData.Type(), structFields)
+	structFields := make([]string, 0, 50) // preallocate, enough for most structs
+	getFields(structData.Type(), &structFields)
 
 	// field descriptions and values of result set are in sync
 	// so fds[i] is matched by vals[i]
@@ -102,20 +103,24 @@ func ReadStruct(dest interface{}, rows pgx.Rows) error {
 		fieldName := ""
 
 		// match names
-		for k := range structFields {
+		for i, k := range structFields {
 			if matchFnc(k, resultName) {
 				// names do match
 				fieldName = k
+				// remove found field
+				l := len(structFields) - 1
+				if l > 0 {
+					structFields[i] = structFields[l]
+				}
+				structFields = structFields[:l]
 				break
 			}
 		}
+
 		if len(fieldName) < 1 {
 			// no matching field found, next
 			continue
 		}
-
-		// field is used, remove it
-		delete(structFields, fieldName)
 
 		// do the assignment
 		// nameed access uses the same rules as Go code
@@ -207,22 +212,12 @@ func defaultNameMatcher(fieldName, resultName string) bool {
 		return false
 	}
 
-	// is struct field exported
-	firstRune := []rune(fieldName)[0]
-	if !unicode.IsUpper(firstRune) {
-		return false
-	}
-
 	// see if the names are equal
-	if !strings.EqualFold(fieldName, resultName) {
-		return false
-	}
-
-	return true
+	return strings.EqualFold(fieldName, resultName)
 }
 
 // helper to recursively collect all field names from the given struct
-func getFields(r reflect.Type, m map[string]struct{}) {
+func getFields(r reflect.Type, m *[]string) {
 	if r.Kind() != reflect.Struct {
 		return
 	}
@@ -232,7 +227,7 @@ func getFields(r reflect.Type, m map[string]struct{}) {
 		case reflect.Struct:
 			getFields(field.Type, m)
 		default:
-			m[field.Name] = struct{}{}
+			*m = append(*m, field.Name)
 		}
 	}
 }
