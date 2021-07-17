@@ -2,10 +2,11 @@ package pgxscan
 
 import (
 	"errors"
-	// "reflect"
+	"fmt"
+	"reflect"
 	"strings"
 
-	"github.com/goccy/go-reflect"
+	// "github.com/goccy/go-reflect"
 
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4"
@@ -27,6 +28,8 @@ var (
 	ErrNotSimpleSlice = errors.New("db field not a simple slice")
 	// ErrEmptyStruct is returned if the destination struct has no fields
 	ErrEmptyStruct = errors.New("destination struct has no fields")
+	// ErrInvalidDestination is returned when the destination field does not match the DB type
+	ErrInvalidDestination = errors.New("destination has incompatible type")
 
 	// DefaultNameMatcher is the matching function used by ReadStruct.
 	// If not set, the internal matching is used.
@@ -123,7 +126,7 @@ func ReadStruct(dest interface{}, rows pgx.Rows) error {
 		}
 
 		// do the assignment
-		// nameed access uses the same rules as Go code
+		// named access uses the same rules as Go code
 		destField := structData.FieldByName(fieldName)
 		if !destField.CanSet() {
 			// silently ignore fields that can not be set
@@ -133,11 +136,16 @@ func ReadStruct(dest interface{}, rows pgx.Rows) error {
 		// fetch value for column[i]
 		v := vals[i]
 
+		// fmt.Printf("field %s: %+v\n", fieldName, v)
+
 		switch v := v.(type) {
 		// special cases for common arrays/slices
 		// fresh slices are assigned to the destination
 		// TODO: improve slice handling
 		case pgtype.TextArray:
+			if !isStringSlice(destField) {
+				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
+			}
 			if len(v.Dimensions) != 1 {
 				return ErrNotSimpleSlice
 			}
@@ -148,28 +156,37 @@ func ReadStruct(dest interface{}, rows pgx.Rows) error {
 			vres := reflect.ValueOf(res)
 			destField.Set(vres)
 		case pgtype.Int2Array:
+			if !isIntSlice(destField, 2) {
+				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
+			}
 			// sql returned 16 bit ints
 			if len(v.Dimensions) != 1 {
 				return ErrNotSimpleSlice
 			}
-			res := make([]int64, len(v.Elements))
+			res := make([]int16, len(v.Elements))
 			for i := 0; i < len(res); i++ {
-				res[i] = int64(v.Elements[i].Int)
+				res[i] = int16(v.Elements[i].Int)
 			}
 			vres := reflect.ValueOf(res)
 			destField.Set(vres)
 		case pgtype.Int4Array:
+			if !isIntSlice(destField, 4) {
+				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
+			}
 			// sql returned 32 bit ints
 			if len(v.Dimensions) != 1 {
 				return ErrNotSimpleSlice
 			}
-			res := make([]int64, len(v.Elements))
+			res := make([]int32, len(v.Elements))
 			for i := 0; i < len(res); i++ {
-				res[i] = int64(v.Elements[i].Int)
+				res[i] = int32(v.Elements[i].Int)
 			}
 			vres := reflect.ValueOf(res)
 			destField.Set(vres)
 		case pgtype.Int8Array:
+			if !isIntSlice(destField, 8) {
+				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
+			}
 			// sql returned 64 bit ints
 			if len(v.Dimensions) != 1 {
 				return ErrNotSimpleSlice
@@ -180,7 +197,36 @@ func ReadStruct(dest interface{}, rows pgx.Rows) error {
 			}
 			vres := reflect.ValueOf(res)
 			destField.Set(vres)
+		case pgtype.Float4Array:
+			if !isFloatSlice(destField, 4) {
+				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
+			}
+			if len(v.Dimensions) != 1 {
+				return ErrNotSimpleSlice
+			}
+			res := make([]float32, len(v.Elements))
+			for i := 0; i < len(res); i++ {
+				res[i] = float32(v.Elements[i].Float)
+			}
+			vres := reflect.ValueOf(res)
+			destField.Set(vres)
+		case pgtype.Float8Array:
+			if !isFloatSlice(destField, 8) {
+				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
+			}
+			if len(v.Dimensions) != 1 {
+				return ErrNotSimpleSlice
+			}
+			res := make([]float64, len(v.Elements))
+			for i := 0; i < len(res); i++ {
+				res[i] = float64(v.Elements[i].Float)
+			}
+			vres := reflect.ValueOf(res)
+			destField.Set(vres)
 		case pgtype.ByteaArray:
+			if !isBytesSlice(destField) {
+				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
+			}
 			// [][]byte is bytea[] in Postgres
 			if len(v.Dimensions) != 1 {
 				return ErrNotSimpleSlice
@@ -230,4 +276,73 @@ func getFields(r reflect.Type, m *[]string) {
 			*m = append(*m, field.Name)
 		}
 	}
+}
+
+func isStringSlice(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Slice:
+	default:
+		return false
+	}
+	e := v.Type().Elem()
+	return e.Kind() == reflect.String
+}
+
+func isBytesSlice(v reflect.Value) bool {
+	if v.Kind() != reflect.Slice {
+		return false
+	}
+	e := v.Type().Elem()
+	if e.Kind() != reflect.Slice {
+		return false
+	}
+	ee := e.Elem()
+	return ee.Kind() == reflect.Uint8
+}
+
+func isIntSize(t reflect.Type, sz int) bool {
+	// first check for valid int type
+	// no need for uint, Postgres does not have uints.
+	switch t.Kind() {
+	case reflect.Int:
+	case reflect.Int8:
+	case reflect.Int16:
+	case reflect.Int32:
+	case reflect.Int64:
+	default:
+		return false
+	}
+
+	return int(t.Size()) == sz
+}
+
+func isIntSlice(v reflect.Value, sz int) bool {
+	if v.Kind() != reflect.Slice {
+		return false
+	}
+
+	e := v.Type().Elem()
+	return isIntSize(e, sz)
+}
+
+func isFloatSize(t reflect.Type, sz int) bool {
+	// first check for valid int type
+	// no need for uint, Postgres does not have uints.
+	switch t.Kind() {
+	case reflect.Float32:
+	case reflect.Float64:
+	default:
+		return false
+	}
+
+	return int(t.Size()) == sz
+}
+
+func isFloatSlice(v reflect.Value, sz int) bool {
+	if v.Kind() != reflect.Slice {
+		return false
+	}
+
+	e := v.Type().Elem()
+	return isFloatSize(e, sz)
 }

@@ -16,7 +16,7 @@ import (
 
 const (
 	defaultDbURL = "host=localhost port=5432 dbname=testdb user=postgres sslmode=disable"
-	testTable    = `CREATE TABLE IF NOT EXISTS scantest (
+	testTable    = `CREATE TABLE scantest (
   bigid bigint DEFAULT 703340046535533321,
   littleid int DEFAULT 2135533321,
   verylittleid smallint DEFAULT 16384,
@@ -28,7 +28,9 @@ const (
   xx bytea[] DEFAULT '{"0102", "x"}',
   xa int[] DEFAULT '{11,22}',
   xb bigint[] DEFAULT '{565663666322000,-566633}',
-  xc smallint[] DEFAULT '{33,-5}'
+  xc smallint[] DEFAULT '{33,-5}',
+  ya real[] DEFAULT '{13.333,-2.1}',
+  yb double precision[] DEFAULT '{10000000007.333,2.10000000001}'
 )`
 )
 
@@ -57,12 +59,11 @@ func setupDB() *pgx.Conn {
 	defer cancel()
 
 	// create table for test.
-	_, err := db.Exec(ctx, testTable)
+	_, err := db.Exec(ctx, "DROP TABLE scantest")
 	if err != nil {
 		panic(err)
 	}
-
-	_, err = db.Exec(ctx, "TRUNCATE TABLE scantest")
+	_, err = db.Exec(ctx, testTable)
 	if err != nil {
 		panic(err)
 	}
@@ -142,11 +143,13 @@ func TestReadStruct(t *testing.T) {
 		VeryLittleId int16
 		N            float32
 		R            float64
+		Ya           []float32
+		Yb           []float64
 		Xx           [][]byte
 		A            []string
-		Xa           []int64
+		Xa           []int32
 		Xb           []int64
-		Xc           []int64
+		Xc           []int16
 		// ignored fields
 		bla          int64
 		WaddelDaddel string
@@ -184,14 +187,17 @@ func TestReadStruct(t *testing.T) {
 	if !reflect.DeepEqual(dest.A, []string{"AA", "BB"}) {
 		t.Error("value mismatch for field A")
 	}
-	if !reflect.DeepEqual(dest.Xa, []int64{11, 22}) {
+	if !reflect.DeepEqual(dest.Xa, []int32{11, 22}) {
 		t.Error("value mismatch for field Xa")
 	}
 	if !reflect.DeepEqual(dest.Xb, []int64{565663666322000, -566633}) {
 		t.Error("value mismatch for field Xb")
 	}
-	if !reflect.DeepEqual(dest.Xc, []int64{33, -5}) {
+	if !reflect.DeepEqual(dest.Xc, []int16{33, -5}) {
 		t.Error("value mismatch for field Xc")
+	}
+	if !reflect.DeepEqual(dest.Ya, []float32{13.333, -2.1}) {
+		t.Errorf("value mismatch for field Ya\n%v\n%v\n", dest.Ya, []float32{13.333, -2.1})
 	}
 
 	// ignored fields
@@ -235,7 +241,7 @@ func TestReadStructEmbedded(t *testing.T) {
 		N        float32
 		R        float64
 		A        []string
-		Xa       []int64
+		Xa       []int32
 	}
 	var dest struct {
 		base2
@@ -279,7 +285,7 @@ func TestReadStructEmbedded(t *testing.T) {
 	if !reflect.DeepEqual(dest.A, []string{"AA", "BB"}) {
 		t.Error("value mismatch for field A")
 	}
-	if !reflect.DeepEqual(dest.Xa, []int64{11, 22}) {
+	if !reflect.DeepEqual(dest.Xa, []int32{11, 22}) {
 		t.Error("value mismatch for field Xa")
 	}
 

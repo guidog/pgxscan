@@ -13,6 +13,10 @@
 //
 // pgxscan also supports some slice types directly:
 //  []int64
+//  []int32
+//  []int16
+//  []float32
+//  []float64
 //  []string
 //  [][]byte
 //
