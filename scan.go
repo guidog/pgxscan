@@ -6,16 +6,23 @@ import (
 	"reflect"
 	"strings"
 
-	// "github.com/goccy/go-reflect"
-
+	"github.com/jackc/pgproto3/v2"
 	"github.com/jackc/pgtype"
-	"github.com/jackc/pgx/v4"
 )
 
 // NameMatcherFnc is the signature for a function doing the name matching for fields.
 // fieldName is the name of the struct field and resultName the column name returned from the query.
 // If the names match true is returned, false otherwise.
 type NameMatcherFnc func(fieldName, resultName string) bool
+
+// PgxRows is a subset of the pgx.Rows interface.
+//
+// Used create a smaller API to implement for tests.
+type PgxRows interface {
+	FieldDescriptions() []pgproto3.FieldDescription
+	Values() ([]interface{}, error)
+	Err() error
+}
 
 var (
 	// ErrNotPointer is returend when the destination is not a pointer.
@@ -46,7 +53,7 @@ var (
 //
 // ReadStruct uses DefaultNameMatcher to match struct fields to result columns.
 // If it is not set, the internal matching is used.
-func ReadStruct(dest interface{}, rows pgx.Rows) error {
+func ReadStruct(dest interface{}, rows PgxRows) error {
 	// bail out early if something is fishy
 	if dest == nil {
 		return ErrDestNil
@@ -79,7 +86,7 @@ func ReadStruct(dest interface{}, rows pgx.Rows) error {
 	}
 
 	// collect all field names from struct
-	structFields := make([]string, 0, 50) // preallocate, enough for most structs
+	structFields := make([]string, 0, 20) // preallocate, enough for most structs
 	getFields(structData.Type(), &structFields)
 
 	// field descriptions and values of result set are in sync
@@ -136,12 +143,9 @@ func ReadStruct(dest interface{}, rows pgx.Rows) error {
 		// fetch value for column[i]
 		v := vals[i]
 
-		// fmt.Printf("field %s: %+v\n", fieldName, v)
-
 		switch v := v.(type) {
 		// special cases for common arrays/slices
 		// fresh slices are assigned to the destination
-		// TODO: improve slice handling
 		case pgtype.TextArray:
 			if !isStringSlice(destField) {
 				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
@@ -257,7 +261,6 @@ func defaultNameMatcher(fieldName, resultName string) bool {
 	if len(fieldName) < 1 || len(resultName) < 1 {
 		return false
 	}
-
 	// see if the names are equal
 	return strings.EqualFold(fieldName, resultName)
 }

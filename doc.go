@@ -31,7 +31,6 @@
 //
 // A match is found when the following conditions are met:
 //   - both names are not empty (length > 0)
-//   - the struct field is exported (uppercase first rune)
 //   - the name of the struct field matches the name from the result set (EqualFold)
 //
 package pgxscan

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/guidog/pgxscan"
+	"github.com/jackc/pgx/v4"
 )
 
 type testRecord struct {
@@ -18,6 +19,11 @@ type testRecord struct {
 	Xx     [][]byte
 	A      []string
 	Xa     []int64
+}
+
+func setupDB() *pgx.Conn {
+	// do DB connect
+	return &pgx.Conn{}
 }
 
 func Example() {

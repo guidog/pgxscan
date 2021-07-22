@@ -1,17 +1,12 @@
 package pgxscan_test
 
 import (
-	"context"
-	"os"
-
-	// "reflect"
+	"reflect"
 	"testing"
-	"time"
-
-	"github.com/goccy/go-reflect"
 
 	"github.com/guidog/pgxscan"
-	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgproto3/v2"
+	"github.com/jackc/pgtype"
 )
 
 const (
@@ -34,63 +29,99 @@ const (
 )`
 )
 
-// helper to create a database connection
-func mkConn() *pgx.Conn {
-	dbUrl := os.Getenv("DB_URL")
-	if len(dbUrl) < 1 {
-		dbUrl = defaultDbURL
-	}
-	cnf, err := pgx.ParseConfig(dbUrl)
-	if err != nil {
-		panic(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	conn, err := pgx.ConnectConfig(ctx, cnf)
-	cancel()
-	if err != nil {
-		panic(err)
-	}
-	return conn
+type testRows struct {
+	fds    []pgproto3.FieldDescription
+	vals   []interface{}
+	errSet error
 }
 
-func setupDB() *pgx.Conn {
-	db := mkConn()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+func (r testRows) Err() error {
+	return r.errSet
+}
 
-	// create table for test.
-	_, err := db.Exec(ctx, "DROP TABLE scantest")
-	if err != nil {
-		panic(err)
-	}
-	_, err = db.Exec(ctx, testTable)
-	if err != nil {
-		panic(err)
+func (r testRows) FieldDescriptions() []pgproto3.FieldDescription {
+	return r.fds
+}
+
+func (r testRows) Values() ([]interface{}, error) {
+	return r.vals, nil
+}
+
+func mkTestRows() testRows {
+	var (
+		testFds = []pgproto3.FieldDescription{
+			{Name: []byte("bigid")},
+			{Name: []byte("littleid")},
+			{Name: []byte("verylittleid")},
+			{Name: []byte("string")},
+			{Name: []byte("n")},
+			{Name: []byte("r")},
+			{Name: []byte("a")},
+			{Name: []byte("x")},
+			{Name: []byte("xx")},
+			{Name: []byte("xa")},
+			{Name: []byte("xb")},
+			{Name: []byte("xc")},
+			{Name: []byte("ya")},
+			{Name: []byte("yb")},
+		}
+		testVals = []interface{}{
+			int64(703340046535533321),
+			int32(2135533321),
+			int16(16384),
+			string("xy"),
+			float32(42.1),
+			float64(-0.000001),
+			pgtype.TextArray{}, // 6
+			[]byte{1, 2, 3},
+			pgtype.ByteaArray{},
+			pgtype.Int4Array{},
+			pgtype.Int8Array{},
+			pgtype.Int2Array{},
+			pgtype.Float4Array{},
+			pgtype.Float8Array{},
+		}
+	)
+	ta := testVals[6].(pgtype.TextArray)
+	ta.Set([]string{"AA", "BB"})
+	testVals[6] = ta
+
+	ba := testVals[8].(pgtype.ByteaArray)
+	ba.Set([][]byte{[]byte("0102"), []byte("x")})
+	testVals[8] = ba
+
+	i4a := testVals[9].(pgtype.Int4Array)
+	i4a.Set([]int32{11, 22})
+	testVals[9] = i4a
+
+	i8a := testVals[10].(pgtype.Int8Array)
+	i8a.Set([]int64{565663666322000, -566633})
+	testVals[10] = i8a
+
+	i2a := testVals[11].(pgtype.Int2Array)
+	i2a.Set([]int16{33, -5})
+	testVals[11] = i2a
+
+	f4a := testVals[12].(pgtype.Float4Array)
+	f4a.Set([]float32{13.333, -2.1})
+	testVals[12] = f4a
+
+	f8a := testVals[13].(pgtype.Float8Array)
+	f8a.Set([]float64{10000000007.333, 2.10000000001})
+	testVals[13] = f8a
+
+	ret := testRows{
+		fds:    testFds,
+		vals:   testVals,
+		errSet: nil,
 	}
 
-	_, err = db.Exec(ctx, "INSERT INTO scantest DEFAULT VALUES")
-	if err != nil {
-		panic(err)
-	}
-	return db
+	return ret
 }
 
 func TestReadStruct(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
-	db := setupDB()
-	defer db.Close(ctx)
-
-	rows, err := db.Query(ctx, "SELECT * FROM scantest")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-
-	if found := rows.Next(); !found {
-		t.Fatal("no test data found")
-	}
+	rows := mkTestRows()
 
 	type X struct {
 		R float64
@@ -104,7 +135,7 @@ func TestReadStruct(t *testing.T) {
 	y = x
 
 	// check if nil pointer is detected
-	err = pgxscan.ReadStruct(nil, rows)
+	err := pgxscan.ReadStruct(nil, rows)
 	if err != pgxscan.ErrDestNil {
 		t.Fatal("nil pointer not detected")
 	}
@@ -154,6 +185,9 @@ func TestReadStruct(t *testing.T) {
 		bla          int64
 		WaddelDaddel string
 	}
+	// assign values different from zero value to see if fields are untouched
+	dest.bla = 7776
+	dest.WaddelDaddel = "hund"
 
 	err = pgxscan.ReadStruct(&dest, rows)
 	if err != nil {
@@ -199,34 +233,24 @@ func TestReadStruct(t *testing.T) {
 	if !reflect.DeepEqual(dest.Ya, []float32{13.333, -2.1}) {
 		t.Errorf("value mismatch for field Ya\n%v\n%v\n", dest.Ya, []float32{13.333, -2.1})
 	}
+	if !reflect.DeepEqual(dest.Yb, []float64{10000000007.333, 2.10000000001}) {
+		t.Errorf("value mismatch for field Yb\n%v\n%v\n", dest.Yb, []float64{10000000007.333, 2.10000000001})
+	}
 
-	// ignored fields
-	if dest.bla != 0 {
+	// ignored fields should not have changed
+	if dest.bla != 7776 {
 		t.Error("value mismatch for field bla")
 
 	}
-	if dest.WaddelDaddel != "" {
+	if dest.WaddelDaddel != "hund" {
 		t.Error("value mismatch for field WaddelDaddel")
 
 	}
 }
 
 func TestReadStructEmbedded(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
-	db := setupDB()
-	defer db.Close(ctx)
-
-	rows, err := db.Query(ctx, "SELECT * FROM scantest")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-
-	if found := rows.Next(); !found {
-		t.Fatal("no test data found")
-	}
+	rows := mkTestRows()
 
 	// type w/ supported data types
 	// field order is not relevant
@@ -251,12 +275,10 @@ func TestReadStructEmbedded(t *testing.T) {
 		A      []string
 	}
 
-	err = pgxscan.ReadStruct(&dest, rows)
+	err := pgxscan.ReadStruct(&dest, rows)
 	if err != nil {
 		t.Error(err)
 	}
-
-	// fmt.Printf("result: %+v\n", dest)
 
 	if dest.String != "xy" {
 		t.Error("value mismatch for field String")
@@ -292,18 +314,7 @@ func TestReadStructEmbedded(t *testing.T) {
 }
 
 func BenchmarkReadStruct(b *testing.B) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	db := setupDB()
-	defer db.Close(ctx)
-
-	rows, err := db.Query(ctx, "SELECT * FROM scantest")
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer rows.Close()
-	rows.Next()
+	rows := mkTestRows()
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -321,9 +332,11 @@ func BenchmarkReadStruct(b *testing.B) {
 			R            float64
 			Xx           [][]byte
 			A            []string
-			Xa           []int64
+			Xa           []int32
 			Xb           []int64
-			Xc           []int64
+			Xc           []int16
+			Ya           []float32
+			Yb           []float64
 			// ignored fields
 			bla int64
 		}
