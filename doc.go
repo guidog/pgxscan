@@ -11,6 +11,18 @@
 //  - float64
 //  - float32
 //
+// The data types have to match exactly. No extension or truncation is done.
+//
+// For example:
+//
+// A struct field of int32 has to be matched with a SQL result field of int.
+// Neither int64 nor int16 are allowed as destination types for an int result.
+//
+// This applies to all supported types!
+//
+// TODO: decide if larger int types should be allowed to hold smaller results.
+// Does only make sense for ints, floating point values would be hit by rounding/representation problems.
+//
 // pgxscan also supports some slice types directly:
 //  []int64
 //  []int32

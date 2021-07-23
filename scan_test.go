@@ -1,6 +1,7 @@
 package pgxscan_test
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -311,6 +312,59 @@ func TestReadStructEmbedded(t *testing.T) {
 		t.Error("value mismatch for field Xa")
 	}
 
+}
+
+func TestReadStructInvalidTypes(t *testing.T) {
+
+	rows := mkTestRows()
+
+	var destA = struct {
+		Bigid int16
+	}{7}
+	err := pgxscan.ReadStruct(&destA, rows)
+	if !errors.Is(err, pgxscan.ErrInvalidDestination) {
+		t.Error(err)
+	}
+
+	var destB = struct {
+		Xa []int16
+	}{}
+	err = pgxscan.ReadStruct(&destB, rows)
+	if !errors.Is(err, pgxscan.ErrInvalidDestination) {
+		t.Error(err)
+	}
+
+	var destC = struct {
+		Xx [][]rune
+	}{}
+	err = pgxscan.ReadStruct(&destC, rows)
+	if !errors.Is(err, pgxscan.ErrInvalidDestination) {
+		t.Error(err)
+	}
+
+	var destD = struct {
+		N float64
+	}{}
+	err = pgxscan.ReadStruct(&destD, rows)
+	if !errors.Is(err, pgxscan.ErrInvalidDestination) {
+		t.Error(err)
+	}
+
+	var destE = struct {
+		String []byte
+	}{}
+	err = pgxscan.ReadStruct(&destE, rows)
+	if !errors.Is(err, pgxscan.ErrInvalidDestination) {
+		t.Error(err)
+	}
+
+	var destF = struct {
+		X string
+	}{}
+	err = pgxscan.ReadStruct(&destF, rows)
+	if !errors.Is(err, pgxscan.ErrInvalidDestination) {
+		t.Error(err)
+	}
 }
 
 func BenchmarkReadStruct(b *testing.B) {

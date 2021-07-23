@@ -17,12 +17,14 @@ type NameMatcherFnc func(fieldName, resultName string) bool
 
 // PgxRows is a subset of the pgx.Rows interface.
 //
-// Used create a smaller API to implement for tests.
+// Used to create a smaller API to implement for tests.
 type PgxRows interface {
 	FieldDescriptions() []pgproto3.FieldDescription
 	Values() ([]interface{}, error)
 	Err() error
 }
+
+const errMismatchFmt = "field %s can't hold result %s, %w"
 
 var (
 	// ErrNotPointer is returend when the destination is not a pointer.
@@ -49,7 +51,12 @@ var (
 // If a struct field is exported and the name matches a returned column name the
 // value of the db column is assigned to the struct field.
 //
-// If the struct field cannot be modified it is silently ignored.
+// If a struct field cannot be modified it is silently ignored.
+//
+// If a DB value can not be assigned to the destination field an ErrInvalidDestination error
+// or an error wrapping ErrInvalidDestination is returned.
+//
+// Error checking is best done w/ errors.Is().
 //
 // ReadStruct uses DefaultNameMatcher to match struct fields to result columns.
 // If it is not set, the internal matching is used.
@@ -148,7 +155,7 @@ func ReadStruct(dest interface{}, rows PgxRows) error {
 		// fresh slices are assigned to the destination
 		case pgtype.TextArray:
 			if !isStringSlice(destField) {
-				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
+				return fmt.Errorf(errMismatchFmt, fieldName, resultName, ErrInvalidDestination)
 			}
 			if len(v.Dimensions) != 1 {
 				return ErrNotSimpleSlice
@@ -161,7 +168,7 @@ func ReadStruct(dest interface{}, rows PgxRows) error {
 			destField.Set(vres)
 		case pgtype.Int2Array:
 			if !isIntSlice(destField, 2) {
-				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
+				return fmt.Errorf(errMismatchFmt, fieldName, resultName, ErrInvalidDestination)
 			}
 			// sql returned 16 bit ints
 			if len(v.Dimensions) != 1 {
@@ -175,7 +182,7 @@ func ReadStruct(dest interface{}, rows PgxRows) error {
 			destField.Set(vres)
 		case pgtype.Int4Array:
 			if !isIntSlice(destField, 4) {
-				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
+				return fmt.Errorf(errMismatchFmt, fieldName, resultName, ErrInvalidDestination)
 			}
 			// sql returned 32 bit ints
 			if len(v.Dimensions) != 1 {
@@ -189,7 +196,7 @@ func ReadStruct(dest interface{}, rows PgxRows) error {
 			destField.Set(vres)
 		case pgtype.Int8Array:
 			if !isIntSlice(destField, 8) {
-				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
+				return fmt.Errorf(errMismatchFmt, fieldName, resultName, ErrInvalidDestination)
 			}
 			// sql returned 64 bit ints
 			if len(v.Dimensions) != 1 {
@@ -203,7 +210,7 @@ func ReadStruct(dest interface{}, rows PgxRows) error {
 			destField.Set(vres)
 		case pgtype.Float4Array:
 			if !isFloatSlice(destField, 4) {
-				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
+				return fmt.Errorf(errMismatchFmt, fieldName, resultName, ErrInvalidDestination)
 			}
 			if len(v.Dimensions) != 1 {
 				return ErrNotSimpleSlice
@@ -216,7 +223,7 @@ func ReadStruct(dest interface{}, rows PgxRows) error {
 			destField.Set(vres)
 		case pgtype.Float8Array:
 			if !isFloatSlice(destField, 8) {
-				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
+				return fmt.Errorf(errMismatchFmt, fieldName, resultName, ErrInvalidDestination)
 			}
 			if len(v.Dimensions) != 1 {
 				return ErrNotSimpleSlice
@@ -229,7 +236,7 @@ func ReadStruct(dest interface{}, rows PgxRows) error {
 			destField.Set(vres)
 		case pgtype.ByteaArray:
 			if !isBytesSlice(destField) {
-				return fmt.Errorf("field %s, %w", fieldName, ErrInvalidDestination)
+				return fmt.Errorf(errMismatchFmt, fieldName, resultName, ErrInvalidDestination)
 			}
 			// [][]byte is bytea[] in Postgres
 			if len(v.Dimensions) != 1 {
@@ -248,12 +255,26 @@ func ReadStruct(dest interface{}, rows PgxRows) error {
 			// try to make the types compatible
 			// might panic in Convert
 			sqlVal := reflect.ValueOf(v)
-			sv := sqlVal.Convert(destField.Type())
-			destField.Set(sv)
+			// sv := sqlVal.Convert(destField.Type())
+			// destField.Set(sv)
+			err := assign(destField, sqlVal)
+			if err != nil {
+				return fmt.Errorf(errMismatchFmt, fieldName, resultName, err)
+			}
 		}
 	}
 
 	return err
+}
+
+func assign(dest, src reflect.Value) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = ErrInvalidDestination
+		}
+	}()
+	dest.Set(src)
+	return nil
 }
 
 func defaultNameMatcher(fieldName, resultName string) bool {
@@ -267,9 +288,6 @@ func defaultNameMatcher(fieldName, resultName string) bool {
 
 // helper to recursively collect all field names from the given struct
 func getFields(r reflect.Type, m *[]string) {
-	if r.Kind() != reflect.Struct {
-		return
-	}
 	for i := 0; i < r.NumField(); i++ {
 		field := r.Field(i)
 		switch field.Type.Kind() {
@@ -282,19 +300,11 @@ func getFields(r reflect.Type, m *[]string) {
 }
 
 func isStringSlice(v reflect.Value) bool {
-	switch v.Kind() {
-	case reflect.Slice:
-	default:
-		return false
-	}
 	e := v.Type().Elem()
 	return e.Kind() == reflect.String
 }
 
 func isBytesSlice(v reflect.Value) bool {
-	if v.Kind() != reflect.Slice {
-		return false
-	}
 	e := v.Type().Elem()
 	if e.Kind() != reflect.Slice {
 		return false
@@ -307,11 +317,7 @@ func isIntSize(t reflect.Type, sz int) bool {
 	// first check for valid int type
 	// no need for uint, Postgres does not have uints.
 	switch t.Kind() {
-	case reflect.Int:
-	case reflect.Int8:
-	case reflect.Int16:
-	case reflect.Int32:
-	case reflect.Int64:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 	default:
 		return false
 	}
@@ -320,10 +326,6 @@ func isIntSize(t reflect.Type, sz int) bool {
 }
 
 func isIntSlice(v reflect.Value, sz int) bool {
-	if v.Kind() != reflect.Slice {
-		return false
-	}
-
 	e := v.Type().Elem()
 	return isIntSize(e, sz)
 }
@@ -332,8 +334,7 @@ func isFloatSize(t reflect.Type, sz int) bool {
 	// first check for valid int type
 	// no need for uint, Postgres does not have uints.
 	switch t.Kind() {
-	case reflect.Float32:
-	case reflect.Float64:
+	case reflect.Float32, reflect.Float64:
 	default:
 		return false
 	}
@@ -342,10 +343,6 @@ func isFloatSize(t reflect.Type, sz int) bool {
 }
 
 func isFloatSlice(v reflect.Value, sz int) bool {
-	if v.Kind() != reflect.Slice {
-		return false
-	}
-
 	e := v.Type().Elem()
 	return isFloatSize(e, sz)
 }
