@@ -252,11 +252,7 @@ func ReadStruct(dest interface{}, rows PgxRows) error {
 			vres := reflect.ValueOf(res)
 			destField.Set(vres)
 		default:
-			// try to make the types compatible
-			// might panic in Convert
 			sqlVal := reflect.ValueOf(v)
-			// sv := sqlVal.Convert(destField.Type())
-			// destField.Set(sv)
 			err := assign(destField, sqlVal)
 			if err != nil {
 				return fmt.Errorf(errMismatchFmt, fieldName, resultName, err)
@@ -290,6 +286,9 @@ func defaultNameMatcher(fieldName, resultName string) bool {
 func getFields(r reflect.Type, m *[]string) {
 	for i := 0; i < r.NumField(); i++ {
 		field := r.Field(i)
+		if !field.Anonymous && !field.IsExported() {
+			continue
+		}
 		switch field.Type.Kind() {
 		case reflect.Struct:
 			getFields(field.Type, m)

@@ -323,7 +323,7 @@ func TestReadStructInvalidTypes(t *testing.T) {
 	}{7}
 	err := pgxscan.ReadStruct(&destA, rows)
 	if !errors.Is(err, pgxscan.ErrInvalidDestination) {
-		t.Error(err)
+		t.Errorf("failed to detect invalid destination type, error: %v", err)
 	}
 
 	var destB = struct {
@@ -331,7 +331,7 @@ func TestReadStructInvalidTypes(t *testing.T) {
 	}{}
 	err = pgxscan.ReadStruct(&destB, rows)
 	if !errors.Is(err, pgxscan.ErrInvalidDestination) {
-		t.Error(err)
+		t.Errorf("failed to detect invalid destination type, error: %v", err)
 	}
 
 	var destC = struct {
@@ -339,7 +339,7 @@ func TestReadStructInvalidTypes(t *testing.T) {
 	}{}
 	err = pgxscan.ReadStruct(&destC, rows)
 	if !errors.Is(err, pgxscan.ErrInvalidDestination) {
-		t.Error(err)
+		t.Errorf("failed to detect invalid destination type, error: %v", err)
 	}
 
 	var destD = struct {
@@ -347,7 +347,7 @@ func TestReadStructInvalidTypes(t *testing.T) {
 	}{}
 	err = pgxscan.ReadStruct(&destD, rows)
 	if !errors.Is(err, pgxscan.ErrInvalidDestination) {
-		t.Error(err)
+		t.Errorf("failed to detect invalid destination type, error: %v", err)
 	}
 
 	var destE = struct {
@@ -355,7 +355,7 @@ func TestReadStructInvalidTypes(t *testing.T) {
 	}{}
 	err = pgxscan.ReadStruct(&destE, rows)
 	if !errors.Is(err, pgxscan.ErrInvalidDestination) {
-		t.Error(err)
+		t.Errorf("failed to detect invalid destination type, error: %v", err)
 	}
 
 	var destF = struct {
@@ -363,7 +363,7 @@ func TestReadStructInvalidTypes(t *testing.T) {
 	}{}
 	err = pgxscan.ReadStruct(&destF, rows)
 	if !errors.Is(err, pgxscan.ErrInvalidDestination) {
-		t.Error(err)
+		t.Errorf("failed to detect invalid destination type, error: %v", err)
 	}
 }
 
